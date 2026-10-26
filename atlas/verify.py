@@ -175,7 +175,8 @@ def verify(
             tests_detail = "no test command detected"
         else:
             tests, test_output = run_test_cmd(test_cmd, repo_path, timeout)
-            tests_detail = f"timed out after {timeout} s" if tests == "unknown" else ""
+            # use the actual message from run_test_cmd (covers both timeout and OSError)
+            tests_detail = test_output if tests == "unknown" else ""
 
         state = decide_state(confidence, contract, tests)
 

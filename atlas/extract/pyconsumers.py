@@ -160,8 +160,7 @@ class _ConsumerVisitor(ast.NodeVisitor):
         if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
             return
         name = first.value
-        if name not in self.known_fields:
-            return
+        # spec §5.4: .get() gated only by HTTP-lib check above, not by known_fields
         n = Node(
             self.repo_name, "field_ref", name, self.rel, node.lineno,
             {"access": "get", "function": self._cur_func()},

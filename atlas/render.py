@@ -64,5 +64,5 @@ def render_verify(rows: list[VerifyRow]) -> str:
     for r in rows:
         if r.state in counts:
             counts[r.state] += 1
-    summary = "  ".join(f"{k}={v}" for k, v in counts.items())
+    summary = " ".join(f"{k}={v}" for k, v in counts.items())
     return out + "\n" + summary
