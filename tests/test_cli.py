@@ -17,6 +17,7 @@ def test_status_missing_db_returns_1(tmp_path, capsys):
 def test_impact_json(tmp_path, capsys):
     db = str(tmp_path / "b.db")
     main(["scan", str(FIX / "routes_repo"), str(FIX / "consumer_repo"), "--db", db])
+    capsys.readouterr()  # drain scan output
     assert main(["impact", "customer_id", "--json", "--db", db]) == 0
     out = capsys.readouterr().out
     import json
