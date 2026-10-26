@@ -29,3 +29,12 @@ def test_scan_is_idempotent(tmp_path):
     a = scan_repos([FIX / "routes_repo", FIX / "consumer_repo"], db)
     b = scan_repos([FIX / "routes_repo", FIX / "consumer_repo"], db)
     assert a == b
+
+
+def test_rescanning_one_repo_keeps_links_to_other_repos(tmp_path):
+    """FR-001: re-scan replaces that repo's rows; links involving other indexed repos must survive."""
+    db = tmp_path / "atlas.db"
+    all_repos = [FIX / "openapi_repo", FIX / "routes_repo", FIX / "consumer_repo"]
+    first = scan_repos(all_repos, db)
+    second = scan_repos([FIX / "consumer_repo"], db)      # incremental: only the consumer
+    assert second["cross_edges"] == first["cross_edges"] > 0

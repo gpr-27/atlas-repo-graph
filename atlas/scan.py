@@ -1,11 +1,12 @@
 """Scan orchestration (architecture §5.1)."""
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
-from atlas.db import open_db, replace_cross_edges, replace_repo
+from atlas.db import fetch_nodes, fetch_repos, open_db, replace_cross_edges, replace_repo
 from atlas.extract import iter_files
 from atlas.extract.openapi import extract_openapi
 from atlas.extract.pyconsumers import extract_py_consumers
@@ -112,9 +113,12 @@ def scan_repos(
         for node in merged.nodes:
             if node.kind == "field":
                 all_known_fields.add(node.name)
+    # Fields already indexed from repos that are NOT part of this call still count as known.
+    scanning = {r.name for r in repo_infos}
+    all_known_fields.update(
+        row["name"] for row in fetch_nodes(conn, kind="field") if row["repo"] not in scanning
+    )
 
-    all_nodes: list[Node] = []
-    all_snippets: dict[str, str] = {}
     summary_repos = []
 
     for repo_info, prod_result in producer_results:
@@ -125,13 +129,7 @@ def scan_repos(
             edges=prod_result.edges + cons.edges,
             skipped=prod_result.skipped + cons.skipped,
         )
-        # Build snippets for every node
-        for node in combined.nodes:
-            snip = read_snippet(p, node.file, node.line, snippet_cache)
-            all_snippets[node.key] = snip
-
         counts = replace_repo(conn, repo_info, combined.nodes, combined.edges, {})
-        all_nodes.extend(combined.nodes)
 
         if verbose:
             print(
@@ -149,7 +147,15 @@ def scan_repos(
             "skipped": combined.skipped,
         })
 
-    # Cross-repo linking
+    # Cross-repo linking runs over every node in the DB (not just the repos passed to this
+    # call), so re-scanning one repo never drops links that involve other indexed repos.
+    repo_paths = {r["name"]: Path(r["path"]) for r in fetch_repos(conn)}
+    all_nodes: list[Node] = []
+    all_snippets: dict[str, str] = {}
+    for row in fetch_nodes(conn):
+        node = Node(row["repo"], row["kind"], row["name"], row["file"], row["line"], json.loads(row["meta"]))
+        all_nodes.append(node)
+        all_snippets[node.key] = read_snippet(repo_paths[row["repo"]], node.file, node.line, snippet_cache)
     cross_edges = link(all_nodes, all_snippets)
     n_cross = replace_cross_edges(conn, cross_edges)
 
