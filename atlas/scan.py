@@ -137,6 +137,11 @@ def scan_repos(
                 f"{len(combined.skipped)} skipped",
                 file=sys.stderr,
             )
+            per_file: dict[str, int] = {}
+            for node in combined.nodes:
+                per_file[node.file] = per_file.get(node.file, 0) + 1
+            for file, n in sorted(per_file.items()):
+                print(f"    {file}: {n} nodes", file=sys.stderr)
             for s in combined.skipped:
                 print(f"    skipped: {s}", file=sys.stderr)
 

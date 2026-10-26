@@ -109,7 +109,7 @@ def replace_repo(
     conn.execute("DELETE FROM repos WHERE name = ?", (repo.name,))
     conn.execute(
         "INSERT INTO repos (name, path, commit_sha, test_cmd, scanned_at) "
-        "VALUES (?, ?, ?, ?, datetime('now'))",
+        "VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
         (repo.name, repo.path, repo.commit_sha, repo.test_cmd),
     )
     repo_id = conn.execute("SELECT id FROM repos WHERE name = ?", (repo.name,)).fetchone()["id"]

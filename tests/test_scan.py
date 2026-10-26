@@ -38,3 +38,22 @@ def test_rescanning_one_repo_keeps_links_to_other_repos(tmp_path):
     first = scan_repos(all_repos, db)
     second = scan_repos([FIX / "consumer_repo"], db)      # incremental: only the consumer
     assert second["cross_edges"] == first["cross_edges"] > 0
+
+
+def test_scanned_at_is_iso8601_utc(tmp_path):
+    import re
+    db = tmp_path / "atlas.db"
+    scan_repos([FIX / "routes_repo"], db)
+    ts = fetch_repos(open_db(db))[0]["scanned_at"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ts), ts
+
+
+def test_verbose_prints_per_file_counts_and_skipped_to_stderr(tmp_path, capsys):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / "good.py").write_text('def f(x):\n    return x["a"]\n')
+    (repo / "bad.py").write_text("def (:\n")
+    scan_repos([repo], tmp_path / "atlas.db", verbose=True)
+    cap = capsys.readouterr()
+    assert cap.out == ""                       # nothing on stdout
+    assert "good.py" in cap.err and "skipped: bad.py" in cap.err
