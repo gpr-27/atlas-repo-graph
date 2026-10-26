@@ -1,0 +1,29 @@
+openapi: 3.0.3
+info: { title: Users, version: "1" }
+paths:
+  /users/{user_id}:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /users:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        customer_id: { type: string }
+        email: { type: string }
