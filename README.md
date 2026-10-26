@@ -60,14 +60,15 @@ This scans four tiny repos, shows the impact of `customer_id`, renames it in bac
 
 ## How states are decided
 
-| Confidence | Contract | Tests | State |
-|---|---|---|---|
-| inferred | any | any | **unknown** |
-| exact | fail | any | **fail** |
-| exact | pass | fail | **fail** |
-| exact | pass | pass | **pass** |
-| exact | pass | not_run | **not_run** |
-| exact | n/a or pass | unknown | **unknown** |
+Rules are applied in this order (first match wins; this is `decide_state` in `atlas/verify.py`):
+
+| # | Condition | State |
+|---|---|---|
+| 1 | confidence is `inferred` (name match only) | **unknown** |
+| 2 | contract is `fail` **or** tests are `fail` | **fail** |
+| 3 | tests are `pass` | **pass** |
+| 4 | contract is `pass` and tests are `not_run` | **not_run** |
+| 5 | anything else (e.g. contract `n/a`, or tests `unknown`) | **unknown** |
 
 `state == pass` only when tests actually ran and passed **and** the link is exact (NFR-006). See [`docs/how-states-are-decided.md`](docs/how-states-are-decided.md).
 
@@ -94,7 +95,7 @@ Atlas speaks MCP over stdio — works with Claude Code, Cursor, Codex, opencode,
 }
 ```
 
-**Any other agent** — run `atlas serve --db ./atlas.db`; the agent sees tools `atlas_impact`, `atlas_verify`, `atlas_search`, `atlas_status`, `atlas_explain_edge`.
+**Any other agent** — run `atlas serve --db ./atlas.db`; the server exposes `impact`, `verify`, `search`, `status`, `explain_edge`; most agents show them prefixed with the server name (`atlas_impact`, `atlas_verify`, …).
 
 **Example agent prompt:**
 > Rename `customer_id` to `account_id` in the users endpoint. Before editing, call `atlas_impact` to find every consumer, then update them, then call `atlas_verify` with `run_tests=true` and report the table.
@@ -118,21 +119,21 @@ python scripts/mcp_check.py ./atlas.db
 - **Cross-repo with evidence on every edge** — you can click to the file and line.
 - **Four honest states** — a truthful `unknown` beats a false green check.
 - **Agent-first via MCP** — ready for any coding agent in two minutes.
-- **Small enough to read in an afternoon** — ~1 500 lines of Python; a language extractor is ~150 lines.
+- **Small enough to read in an afternoon** — ~1,800 lines of Python; a language extractor is ~150 lines.
 
 ## Prior art
 
-Several excellent tools build code graphs for agents. Atlas is deliberately smaller and stricter:
+Several excellent tools build code graphs for agents. Atlas borrows *ideas* from them (no code is copied) and credits what each is closest to:
 
-| Tool | What it does well | How Atlas differs |
+| Tool | Licence | Closest to Atlas in |
 |---|---|---|
-| [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) | Cross-repo HTTP route matching, SQLite, MCP tools | Atlas adds evidence on every edge + four-state verify |
-| [repowise](https://github.com/repowise-dev/repowise) | Contracts + consumers + breaking-change rules | Atlas is ~10× smaller; no LLM in decision path |
-| [repo-graph](https://github.com/James-Chahwan/repo-graph) | Polyrepo impact, honest absence reports | Atlas adds MCP + OpenAPI + test runner |
-| [CODEGRAPH_MCP](https://github.com/raghurammrsd/CODEGRAPH_MCP) | Evidence columns on edges, ast-based routes | Atlas adds cross-repo linking + four honest states |
-| [GitNexus](https://github.com/abhigyanpatwari/GitNexus) | Response keys vs consumer keys ("shape check") | Atlas is pure Python, MIT, local-only |
+| [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) | MIT | cross-repo HTTP route matching, SQLite schema, MCP tools |
+| [repowise](https://github.com/repowise-dev/repowise) | AGPL-3.0 | contracts + consumers + breaking-change rules |
+| [repo-graph](https://github.com/James-Chahwan/repo-graph) | MIT | polyrepo impact, honest "absence" reports |
+| [CODEGRAPH_MCP](https://github.com/raghurammrsd/CODEGRAPH_MCP) | MIT | evidence columns on edges, `ast`-based Flask/FastAPI routes |
+| [GitNexus](https://github.com/abhigyanpatwari/GitNexus) | PolyForm Noncommercial | response keys vs consumer keys ("shape check") |
 
-Atlas links *across* repositories, keeps the source evidence on every edge, and reports verification as pass / fail / not_run / unknown — never a green check it didn't earn.
+Atlas is deliberately smaller and stricter: it links *across* repositories, keeps the source evidence on every edge, and reports verification as pass / fail / not_run / unknown — never a green check it didn't earn. It is a small codebase you can read in an afternoon and extend with a ~150-line extractor.
 
 ## Contributing
 
