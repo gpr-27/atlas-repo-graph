@@ -28,3 +28,15 @@ def test_http_calls_and_field_refs():
 def test_requests_get_is_not_a_field_ref():
     r = extract_py_consumers("billing", FIX, known_fields=set())
     assert not any(n.kind == "field_ref" and n.name.startswith("http") for n in r.nodes)
+
+
+def test_route_decorator_get_is_not_a_field_ref(tmp_path):
+    """`@app.get("/x")` is a route decorator, not a dict .get("key") field access."""
+    (tmp_path / "svc.py").write_text(
+        '@app.get("/users/{user_id}")\n'
+        "def handler(user_id, cfg):\n"
+        '    return cfg.get("timeout")\n'
+    )
+    r = extract_py_consumers("svc", tmp_path, known_fields=set())
+    names = {n.name for n in r.nodes if n.kind == "field_ref"}
+    assert names == {"timeout"}          # the real dict .get() is kept; the decorator path is not

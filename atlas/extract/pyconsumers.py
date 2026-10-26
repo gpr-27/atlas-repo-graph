@@ -79,6 +79,7 @@ class _ConsumerVisitor(ast.NodeVisitor):
         self.known_fields = known_fields
         self.nodes: list[Node] = []
         self._func_stack: list[str] = []
+        self._decorator_calls: set[int] = set()   # id() of Call nodes used as decorators
 
     def _snippet(self, lineno: int) -> str:
         if 0 < lineno <= len(self.lines):
@@ -89,6 +90,7 @@ class _ConsumerVisitor(ast.NodeVisitor):
         return self._func_stack[-1] if self._func_stack else ""
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
+        self._decorator_calls.update(id(d) for d in node.decorator_list)
         self._func_stack.append(node.name)
         self.generic_visit(node)
         self._func_stack.pop()
@@ -149,6 +151,9 @@ class _ConsumerVisitor(ast.NodeVisitor):
     def _check_get_ref(self, node: ast.Call):
         """x.get("field") → field_ref with access='get'."""
         if not isinstance(node.func, ast.Attribute) or node.func.attr != "get":
+            return
+        # `@app.get("/path")` is a route decorator, not a dict field access
+        if id(node) in self._decorator_calls:
             return
         # exclude HTTP library .get calls
         root = _root_id(node.func.value)
