@@ -105,8 +105,8 @@ def extract_py_routes(repo_name: str, repo_root: Path) -> ExtractResult:
         rel = path.relative_to(repo_root).as_posix()
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as exc:
-            result.skipped.append(f"{rel}: OSError: {exc}")
+        except (OSError, UnicodeDecodeError) as exc:
+            result.skipped.append(f"{rel}: {type(exc).__name__}: {exc}")
             continue
         tree = parse_file(path)
         if tree is None:
