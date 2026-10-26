@@ -22,10 +22,10 @@ Agents and `grep` see one repo at a time. A change that looks safe in the backen
 ## Install
 
 ```bash
-# from a clone (recommended while the repo is local-only)
-pip install -e .
-# or
-uv tool install .
+# from a clone, into a virtualenv (includes pytest)
+pip install -e ".[dev]"
+# or as an isolated tool
+uv tool install . --with pytest
 
 # verify
 atlas --help
@@ -34,7 +34,10 @@ atlas --help
 Replace `YOUR_GITHUB_USERNAME` when the repo is public:
 ```bash
 pipx install git+https://github.com/YOUR_GITHUB_USERNAME/atlas-repo-graph
+pipx inject atlas-repo-graph pytest
 ```
+
+**Why pytest?** `atlas verify --run-tests` runs each consumer repo's test command (`python -m pytest -q` by default) with the *same Python Atlas is installed in*. If pytest is missing from that environment, pytest cannot start, exits non-zero, and the repo is reported as `tests: fail` even though your tests were never run. Install pytest alongside Atlas as shown above, or give the repo a `.atlas.yaml` whose `test_cmd:` does not start with `python ` (for example `make test`), which Atlas runs unchanged.
 
 ## 60-second demo
 
