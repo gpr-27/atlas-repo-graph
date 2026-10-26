@@ -30,3 +30,12 @@ def test_explain_edge_not_found(tmp_path, capsys):
     main(["scan", str(FIX / "routes_repo"), str(FIX / "consumer_repo"), "--db", db])
     assert main(["explain-edge", "999999", "--db", db]) == 1
     assert "edge not found" in capsys.readouterr().err.lower()
+
+
+def test_scan_nonexistent_repo_returns_1(tmp_path, capsys):
+    """Failure-path: repo path doesn't exist → exit 1, nothing written."""
+    db = str(tmp_path / "x.db")
+    rc = main(["scan", "/nonexistent/atlas_test_repo_xyz", "--db", db])
+    assert rc == 1
+    assert "not found" in capsys.readouterr().err.lower()
+    assert not (tmp_path / "x.db").exists()  # nothing written

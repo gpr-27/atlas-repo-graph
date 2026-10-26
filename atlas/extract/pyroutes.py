@@ -104,11 +104,13 @@ def extract_py_routes(repo_name: str, repo_root: Path) -> ExtractResult:
     for path in iter_files(repo_root, (".py",)):
         rel = path.relative_to(repo_root).as_posix()
         try:
-            tree = parse_file(path)
             lines = path.read_text(encoding="utf-8").splitlines()
-        except (SyntaxError, UnicodeDecodeError, OSError) as exc:
-            reason = f"{type(exc).__name__}: {exc}".replace("\n", " ")
-            result.skipped.append(f"{rel}: {reason}")
+        except OSError as exc:
+            result.skipped.append(f"{rel}: OSError: {exc}")
+            continue
+        tree = parse_file(path)
+        if tree is None:
+            result.skipped.append(f"{rel}: SyntaxError")
             continue
         for function in ast.walk(tree):
             if not isinstance(function, _FUNCTION_NODES):

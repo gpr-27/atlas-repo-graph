@@ -199,11 +199,13 @@ def extract_py_consumers(
     for path in iter_files(repo_root, (".py",)):
         rel = path.relative_to(repo_root).as_posix()
         try:
-            tree = parse_file(path)
             lines = path.read_text(encoding="utf-8").splitlines()
-        except (SyntaxError, UnicodeDecodeError, OSError) as exc:
-            reason = f"{type(exc).__name__}: {exc}".replace("\n", " ")
-            result.skipped.append(f"{rel}: {reason}")
+        except OSError as exc:
+            result.skipped.append(f"{rel}: OSError: {exc}")
+            continue
+        tree = parse_file(path)
+        if tree is None:
+            result.skipped.append(f"{rel}: SyntaxError")
             continue
         visitor = _ConsumerVisitor(repo_name, rel, lines, known_fields)
         visitor.visit(tree)

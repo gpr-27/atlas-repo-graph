@@ -31,5 +31,8 @@ def iter_files(repo_root: Path, suffixes: tuple[str, ...] | list[str]) -> Iterat
 
 
 def parse_file(path: Path) -> ast.Module | None:
-    """Parse a Python file; return None on syntax/decoding errors (caller records skipped)."""
-    return ast.parse(path.read_text(encoding="utf-8"))
+    """Parse a Python file; return None on SyntaxError/UnicodeDecodeError (caller records skipped)."""
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return None

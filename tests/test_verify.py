@@ -126,3 +126,47 @@ def test_verify_after_rename(ws_renamed):
 
 def test_verify_nobody_references(ws):
     assert verify(ws.conn, "ghost") == []
+
+
+def test_timeout_does_not_block_other_repos(tmp_path):
+    """Failure-path: a hanging test_cmd → unknown for that repo, others still verified."""
+    import sys
+
+    # producer
+    prod = tmp_path / "producer"
+    prod.mkdir()
+    (prod / "app.py").write_text(
+        _FASTAPI_STUB +
+        "app = FastAPI()\n@app.get(\"/u/{id}\")\ndef g(id):\n    return {\"val\": 1}\n"
+    )
+
+    # consumer_slow: has a test command that sleeps (times out)
+    slow = tmp_path / "consumer_slow"
+    slow.mkdir()
+    (slow / "s.py").write_text('def f(r):\n    return r["val"]\n')
+    (slow / "tests").mkdir()
+    # Write a test that explicitly sleeps longer than our timeout
+    (slow / "tests" / "test_s.py").write_text("import time\ndef test_hang():\n    time.sleep(30)\n")
+
+    # consumer_fast: normal repo with no test_cmd
+    fast = tmp_path / "consumer_fast"
+    fast.mkdir()
+    (fast / "f.py").write_text('def f(r):\n    return r["val"]\n')
+
+    from atlas.scan import scan_repos
+    from atlas.db import open_db
+    db = tmp_path / "t.db"
+    scan_repos([prod, slow, fast], db)
+    conn = open_db(db)
+
+    rows = {r.repo: r for r in verify(conn, "val", run_tests=True, timeout=2)}
+    conn.close()
+
+    # Both consumers appear
+    assert "consumer_slow" in rows
+    assert "consumer_fast" in rows
+    # Slow repo timed out → unknown
+    assert rows["consumer_slow"].tests == "unknown"
+    assert "timed out" in rows["consumer_slow"].test_output
+    # Fast repo (no test_cmd) → not_run, not blocked
+    assert rows["consumer_fast"].tests == "not_run"
