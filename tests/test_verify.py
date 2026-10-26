@@ -170,3 +170,43 @@ def test_timeout_does_not_block_other_repos(tmp_path):
     assert "timed out" in rows["consumer_slow"].test_output
     # Fast repo (no test_cmd) → not_run, not blocked
     assert rows["consumer_fast"].tests == "not_run"
+
+
+def _scan_ws(tmp_path, producer_ret, consumers):
+    """producer exposes GET /u/{id} returning `producer_ret`; consumers = {name: source}."""
+    from atlas.scan import scan_repos
+    from atlas.db import open_db
+    prod = tmp_path / "producer"
+    prod.mkdir()
+    (prod / "app.py").write_text(
+        _FASTAPI_STUB + 'app = FastAPI()\n@app.get("/u/{id}")\ndef g(id):\n    return ' + producer_ret + "\n"
+    )
+    repos = [prod]
+    for name, src in consumers.items():
+        d = tmp_path / name
+        d.mkdir()
+        (d / "m.py").write_text(src)
+        repos.append(d)
+    scan_repos(repos, tmp_path / "t.db")
+    return open_db(tmp_path / "t.db")
+
+
+_CALLER = 'from urllib.request import urlopen\ndef f(i):\n    d = urlopen(f"http://x/u/{i}")\n    return d["%s"]\n'
+
+
+def test_renamed_to_alone_without_exact_link_is_not_a_consumer(tmp_path):
+    """§6: a repo counts via renamed_to only with an exact CONSUMES edge (name-only mention does not)."""
+    conn = _scan_ws(tmp_path, '{"account_id": 1}', {
+        "name_only": 'def f(row):\n    return row["account_id"]\n',
+        "linked": _CALLER % "account_id",
+    })
+    rows = {r.repo for r in verify(conn, "customer_id", renamed_to="account_id")}
+    assert rows == {"linked"}
+
+
+def test_call_to_unrelated_endpoint_never_gives_exact_confidence(tmp_path):
+    """NFR-006: the file calls a producer endpoint, but that endpoint exposes neither the old nor the
+    new name, so the link is a guess -> inferred -> unknown, never fail."""
+    conn = _scan_ws(tmp_path, '{"other": 1}', {"c": _CALLER % "customer_id"})
+    (row,) = verify(conn, "customer_id", renamed_to="account_id")
+    assert row.confidence == "inferred" and row.state == "unknown"

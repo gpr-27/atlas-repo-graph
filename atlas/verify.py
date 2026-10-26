@@ -53,16 +53,23 @@ def verify(
         for row in rows:
             producer_repos.add(row[0])
 
-    # Consumer repos: have a field_ref for symbol (or renamed_to), excluding producers
+    # Consumer repos (§6): any field_ref named symbol, or -- for renamed_to -- a field_ref with an
+    # exact CONSUMES edge. Producers are never their own consumers.
     consumer_repos: set[str] = set()
-    for s in ([symbol] + ([renamed_to] if renamed_to else [])):
+    rows = conn.execute(
+        "SELECT DISTINCT r.name FROM nodes n JOIN repos r ON r.id = n.repo_id "
+        "WHERE n.kind = 'field_ref' AND n.name = ?", (symbol,)
+    ).fetchall()
+    consumer_repos.update(row[0] for row in rows)
+    if renamed_to:
         rows = conn.execute(
             "SELECT DISTINCT r.name FROM nodes n JOIN repos r ON r.id = n.repo_id "
-            "WHERE n.kind = 'field_ref' AND n.name = ?", (s,)
+            "JOIN edges e ON e.src_id = n.id "
+            "WHERE n.kind = 'field_ref' AND n.name = ? AND e.kind = 'CONSUMES' AND e.confidence = 'exact'",
+            (renamed_to,),
         ).fetchall()
-        for row in rows:
-            if row[0] not in producer_repos:
-                consumer_repos.add(row[0])
+        consumer_repos.update(row[0] for row in rows)
+    consumer_repos -= producer_repos
 
     if not consumer_repos:
         return []
@@ -108,8 +115,10 @@ def verify(
                 (renamed_to, repo_name),
             ).fetchone())
 
-        # confidence: exact if any CONSUMES edge from refs_old ∪ refs_new is exact;
-        # fallback: if any ref's file has a CALLS edge to a cross-repo endpoint, still exact
+        # confidence: exact if any CONSUMES edge from refs_old ∪ refs_new is exact (§6.3).
+        # Documented extension: after a rename the old field no longer exists, so the linker cannot
+        # create a CONSUMES edge for it. If the ref's file calls an endpoint that exposes `symbol`
+        # or `renamed_to`, the link is still proven (a call, not a name guess) -> exact.
         all_ref_ids = [r["id"] for r in refs_old] + [r["id"] for r in refs_new]
         all_refs = list(refs_old) + list(refs_new)
         confidence = "inferred"
@@ -126,17 +135,18 @@ def verify(
                 confidence = "exact"
                 best_ref = (exact_edge["file"], exact_edge["line"])
             else:
-                # fallback: check if any ref's file has a CALLS edge to a cross-repo endpoint
-                ref_files = list({r["file"] for r in all_refs})
-                for ref_file in ref_files:
+                names = [symbol] + ([renamed_to] if renamed_to else [])
+                name_marks = ",".join("?" * len(names))
+                for ref_file in sorted({r["file"] for r in all_refs}):
                     calls = conn.execute(
-                        "SELECT e.id FROM edges e "
-                        "JOIN nodes src ON src.id = e.src_id "
+                        "SELECT 1 FROM edges c "
+                        "JOIN nodes src ON src.id = c.src_id "
                         "JOIN repos sr ON sr.id = src.repo_id "
-                        "JOIN nodes dst ON dst.id = e.dst_id "
-                        "JOIN repos dr ON dr.id = dst.repo_id "
-                        "WHERE e.kind = 'CALLS' AND src.file = ? AND sr.name = ? AND dr.name != ?",
-                        (ref_file, repo_name, repo_name),
+                        "JOIN edges x ON x.src_id = c.dst_id AND x.kind = 'EXPOSES' "
+                        "JOIN nodes fld ON fld.id = x.dst_id "
+                        "WHERE c.kind = 'CALLS' AND src.file = ? AND sr.name = ? "
+                        f"AND fld.name IN ({name_marks})",
+                        (ref_file, repo_name, *names),
                     ).fetchone()
                     if calls:
                         confidence = "exact"
