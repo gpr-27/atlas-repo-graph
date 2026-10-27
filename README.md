@@ -30,10 +30,9 @@ uv tool install . --with pytest
 # verify
 atlas --help
 ```
-
-Replace `YOUR_GITHUB_USERNAME` when the repo is public:
+Or straight from GitHub:
 ```bash
-pipx install git+https://github.com/YOUR_GITHUB_USERNAME/atlas-repo-graph
+pipx install git+https://github.com/gpr-27/atlas-repo-graph
 pipx inject atlas-repo-graph pytest
 ```
 

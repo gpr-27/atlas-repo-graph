@@ -5,7 +5,7 @@ Atlas is intentionally small. Please keep it that way.
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/atlas-repo-graph
+git clone https://github.com/gpr-27/atlas-repo-graph
 cd atlas-repo-graph
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
