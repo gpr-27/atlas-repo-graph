@@ -39,3 +39,39 @@ def test_scan_nonexistent_repo_returns_1(tmp_path, capsys):
     assert rc == 1
     assert "not found" in capsys.readouterr().err.lower()
     assert not (tmp_path / "x.db").exists()  # nothing written
+
+
+def test_verify_nobody_references_exit_0_and_json_is_valid(tmp_path, capsys):
+    import json
+    db = str(tmp_path / "d.db")
+    main(["scan", str(FIX / "routes_repo"), str(FIX / "consumer_repo"), "--db", db])
+    capsys.readouterr()
+    assert main(["verify", "ghost_field", "--db", db]) == 0
+    assert "no consumers reference" in capsys.readouterr().out
+    assert main(["verify", "ghost_field", "--json", "--db", db]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_usage_error_exits_1_not_2(capsys):
+    # 2 is reserved for "verify found a fail row"
+    assert main(["verify"]) == 1
+    assert main(["explain-edge", "abc", "--db", "x.db"]) == 1
+
+
+def test_scan_file_instead_of_dir_returns_1(tmp_path, capsys):
+    f = tmp_path / "notadir"
+    f.write_text("")
+    assert main(["scan", str(f), "--db", str(tmp_path / "f.db")]) == 1
+    assert not (tmp_path / "f.db").exists()
+
+
+def test_scan_db_in_missing_dir_returns_1(tmp_path, capsys):
+    assert main(["scan", str(FIX / "routes_repo"), "--db", str(tmp_path / "nodir" / "x.db")]) == 1
+    assert "cannot open db" in capsys.readouterr().err.lower()
+
+
+def test_missing_db_returns_1_for_every_query_command(tmp_path, capsys):
+    db = str(tmp_path / "none.db")
+    for argv in (["impact", "x"], ["verify", "x"], ["search", "x"], ["explain-edge", "1"]):
+        assert main(argv + ["--db", db]) == 1
+    assert not (tmp_path / "none.db").exists()

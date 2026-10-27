@@ -5,6 +5,14 @@ from collections import defaultdict
 from atlas.models import Edge, Evidence, Node
 
 
+def _strip_slash(text: str, suffix: str = "") -> str:
+    """Drop one trailing "/" before `suffix`, keeping the root ("/" or "^/$") intact."""
+    body = text[: len(text) - len(suffix)]
+    if body.endswith("/") and body.rstrip("/").lstrip("^"):
+        body = body.rstrip("/")
+    return body + suffix
+
+
 def link(nodes: list[Node], snippets: dict[str, str]) -> list[Edge]:
     """nodes: all nodes from all repos. snippets: node.key -> source line text.
     Returns CALLS + CONSUMES edges (never within the same repo)."""
@@ -27,13 +35,16 @@ def link(nodes: list[Node], snippets: dict[str, str]) -> list[Edge]:
         call_path = call.meta.get("path", "")
         call_method = call.meta.get("method", "")
         # substitute {} → "x" to match endpoint patterns
-        test_path = call_path.replace("{}", "x")
+        # trailing "/" is normalized on both sides: "/users/" calls match "/users/" routes
+        test_path = _strip_slash(call_path.replace("{}", "x"))
         for ep in endpoints:
             if ep.repo == call.repo:
                 continue
             if ep.meta.get("method") != call_method:
                 continue
             pattern = ep.meta.get("pattern", "")
+            if pattern.endswith("$"):
+                pattern = _strip_slash(pattern, "$")
             if pattern and re.fullmatch(pattern, test_path):
                 snip = snippets.get(call.key, "")
                 e = Edge(

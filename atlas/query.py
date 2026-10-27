@@ -2,8 +2,10 @@
 import json
 import sqlite3
 from dataclasses import asdict
+from pathlib import Path
 
 from atlas.models import ImpactResult, ImpactRow
+from atlas.scan import read_snippet
 
 
 def status(conn: sqlite3.Connection) -> dict:
@@ -58,6 +60,9 @@ def impact(conn: sqlite3.Connection, symbol: str) -> ImpactResult:
             field_ids,
         ).fetchall()
 
+        # A consumer reference links to every producer field of the same name (e.g. the
+        # OpenAPI spec and the route both expose it); show each reference once per endpoint.
+        seen: set[tuple] = set()
         for er in edge_rows:
             # get source node (consumer)
             src = conn.execute(
@@ -73,6 +78,10 @@ def impact(conn: sqlite3.Connection, symbol: str) -> ImpactResult:
             ).fetchone()
             dst_meta = json.loads(dst["meta"]) if dst and dst["meta"] else {}
             via = dst_meta.get("endpoint", "") if er["confidence"] == "exact" else "name match"
+            key = (src["repo"], src["file"], src["line"], er["confidence"], via)
+            if key in seen:
+                continue
+            seen.add(key)
             consumers.append(ImpactRow(
                 repo=src["repo"],
                 file=src["file"],
@@ -85,26 +94,33 @@ def impact(conn: sqlite3.Connection, symbol: str) -> ImpactResult:
     else:
         # No producers: field_refs named symbol → orphan rows (inferred, edge_id=0)
         ref_rows = conn.execute(
-            "SELECT n.file, n.line, r.name AS repo "
+            "SELECT n.file, n.line, r.name AS repo, r.path AS repo_path "
             "FROM nodes n JOIN repos r ON r.id = n.repo_id "
             "WHERE n.kind = 'field_ref' AND n.name = ?",
             (symbol,),
         ).fetchall()
+        cache: dict = {}
         for rr in ref_rows:
             consumers.append(ImpactRow(
                 repo=rr["repo"], file=rr["file"], line=rr["line"],
-                snippet="", confidence="inferred", via="name match", edge_id=0,
+                snippet=read_snippet(Path(rr["repo_path"]), rr["file"], rr["line"], cache),
+                confidence="inferred", via="name match", edge_id=0,
             ))
 
+    # A reference already proven exact doesn't need its extra name-match rows.
+    exact_refs = {(c.repo, c.file, c.line) for c in consumers if c.confidence == "exact"}
+    consumers = [c for c in consumers
+                 if c.confidence == "exact" or (c.repo, c.file, c.line) not in exact_refs]
     return ImpactResult(symbol=symbol, producers=producers, consumers=consumers)
 
 
 def search(conn: sqlite3.Connection, text: str, limit: int = 50) -> list[dict]:
-    pattern = f"%{text}%"
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
     rows = conn.execute(
         "SELECT n.id, n.kind, n.name, n.file, n.line, r.name AS repo "
         "FROM nodes n JOIN repos r ON r.id = n.repo_id "
-        "WHERE LOWER(n.name) LIKE LOWER(?) "
+        "WHERE LOWER(n.name) LIKE LOWER(?) ESCAPE '\\' "
         "ORDER BY n.id LIMIT ?",
         (pattern, limit),
     ).fetchall()

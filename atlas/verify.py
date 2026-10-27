@@ -1,5 +1,6 @@
 """Verification: contract check + test runner + four-state decision (architecture §6)."""
 import json
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -18,14 +19,23 @@ def decide_state(confidence: str, contract: str, tests: str) -> str:
 
 
 def run_test_cmd(cmd: str, cwd: str, timeout: int) -> tuple[str, str]:
+    parts = cmd.split()
+    module = parts[2] if len(parts) > 2 and parts[:2] == ["python", "-m"] else None
     if cmd.startswith("python "):
-        cmd = sys.executable + cmd[6:]
+        cmd = shlex.quote(sys.executable) + cmd[6:]
     try:
         result = subprocess.run(
             cmd, shell=True, cwd=cwd,
             capture_output=True, text=True, timeout=timeout,
         )
         output = "\n".join((result.stdout + result.stderr).splitlines()[-30:])
+        if result.returncode in (126, 127):
+            # the shell could not find or execute the command: no test ran
+            last = output.splitlines()[-1] if output else ""
+            return "unknown", f"failed to start (exit {result.returncode}): {last}"
+        if module and result.returncode != 0 and f"No module named {module}" in output:
+            # e.g. pytest isn't installed next to Atlas: the tests never ran
+            return "unknown", f"failed to start: {module} is not installed for {sys.executable}"
         state = "pass" if result.returncode == 0 else "fail"
         return state, output
     except subprocess.TimeoutExpired:

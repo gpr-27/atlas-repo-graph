@@ -22,6 +22,14 @@ def _root_id(node: ast.expr) -> str | None:
     return None
 
 
+def _is_http_receiver(node: ast.expr) -> bool:
+    """§5.4: the call's receiver is `Name` or `Attribute` named requests/httpx/client/session
+    (so `self.client.get(...)` counts), or an attribute chain rooted at one of them."""
+    if isinstance(node, ast.Attribute) and node.attr in _HTTP_ROOTS:
+        return True
+    return _root_id(node) in _HTTP_ROOTS
+
+
 def _normalize_path(path: str) -> str:
     """Strip scheme+host, remove trailing slash (except root), collapse //."""
     if "://" in path:
@@ -60,9 +68,10 @@ def url_to_path(node: ast.expr) -> str | None:
     raw = _raw_path(node)
     if raw is None:
         return None
-    # strip scheme+host
+    # strip scheme+host, query string and fragment
     if "://" in raw:
         raw = urllib.parse.urlsplit(raw).path
+    raw = raw.split("?", 1)[0].split("#", 1)[0]
     # strip leading base-URL placeholder
     if raw.startswith("{}"):
         raw = raw[2:]
@@ -78,6 +87,7 @@ class _ConsumerVisitor(ast.NodeVisitor):
         self.lines = source_lines
         self.known_fields = known_fields
         self.nodes: list[Node] = []
+        self.skipped: list[str] = []
         self._func_stack: list[str] = []
         self._decorator_calls: set[int] = set()   # id() of Call nodes used as decorators
 
@@ -111,10 +121,11 @@ class _ConsumerVisitor(ast.NodeVisitor):
 
         if isinstance(node.func, ast.Attribute):
             attr = node.func.attr
-            root = _root_id(node.func.value)
-            if attr in _HTTP_ATTRS and root in _HTTP_ROOTS:
+            if attr in _HTTP_ATTRS and _is_http_receiver(node.func.value):
                 method = attr.upper()
-                library = root
+                library = _root_id(node.func.value)
+                if library not in _HTTP_ROOTS:          # e.g. self.client.get → "client"
+                    library = node.func.value.attr
             elif attr == "urlopen":
                 method = "GET"
                 library = "urllib"
@@ -134,11 +145,9 @@ class _ConsumerVisitor(ast.NodeVisitor):
                 if kw.arg == "url":
                     url_node = kw.value
                     break
-        if url_node is None:
-            return
-
-        path = url_to_path(url_node)
+        path = url_to_path(url_node) if url_node is not None else None
         if path is None:
+            self.skipped.append(f"{self.rel}:{node.lineno}: unresolvable url")
             return
 
         name = f"{method} {path}"
@@ -155,9 +164,8 @@ class _ConsumerVisitor(ast.NodeVisitor):
         # `@app.get("/path")` is a route decorator, not a dict field access
         if id(node) in self._decorator_calls:
             return
-        # exclude HTTP library .get calls
-        root = _root_id(node.func.value)
-        if root in _HTTP_ROOTS:
+        # exclude HTTP library .get calls (including `self.client.get(...)`)
+        if _is_http_receiver(node.func.value):
             return
         if not node.args:
             return
@@ -187,8 +195,7 @@ class _ConsumerVisitor(ast.NodeVisitor):
         # x.field where field is in known_fields
         attr = node.attr
         if attr in self.known_fields:
-            root = _root_id(node.value)
-            if root not in _HTTP_ROOTS:
+            if not _is_http_receiver(node.value):
                 n = Node(
                     self.repo_name, "field_ref", attr, self.rel, node.lineno,
                     {"access": "attr", "function": self._cur_func()},
@@ -215,4 +222,5 @@ def extract_py_consumers(
         visitor = _ConsumerVisitor(repo_name, rel, lines, known_fields)
         visitor.visit(tree)
         result.nodes.extend(visitor.nodes)
+        result.skipped.extend(visitor.skipped)
     return result

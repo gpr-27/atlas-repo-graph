@@ -22,3 +22,25 @@ def test_syntax_error_file_is_skipped(tmp_path):
     (tmp_path / "bad.py").write_text("def (:\n")
     r = extract_py_routes("x", tmp_path)
     assert r.nodes == [] and any("bad.py" in s for s in r.skipped)
+
+def test_methods_tuple_or_set_and_tuple_returns(tmp_path):
+    (tmp_path / "app.py").write_text(
+        "@app.route('/a', methods=('GET', 'POST'))\n"
+        "def a():\n"
+        "    return jsonify({'x': 1}), 200\n"
+        "@app.route('/b', methods={'PUT'})\n"
+        "def b():\n"
+        "    return {'y': 2}, 201\n"
+    )
+    r = extract_py_routes("x", tmp_path)
+    eps = sorted(n.name for n in r.nodes if n.kind == "endpoint")
+    assert eps == ["GET /a", "POST /a", "PUT /b"]
+    fields = sorted((n.meta["endpoint"], n.name) for n in r.nodes if n.kind == "field")
+    assert fields == [("GET /a", "x"), ("POST /a", "x"), ("PUT /b", "y")]
+    assert not r.skipped
+
+
+def test_snippet_truncated_to_200(tmp_path):
+    (tmp_path / "app.py").write_text(f"@app.get('/a')\ndef a():\n    return {{'k': '{'v' * 300}'}}\n")
+    r = extract_py_routes("x", tmp_path)
+    assert len(r.edges) == 1 and len(r.edges[0].evidence.snippet) == 200

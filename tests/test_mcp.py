@@ -33,3 +33,25 @@ def test_mcp_tools_roundtrip(tmp_path):
                 assert set(vr["summary"]) == {"pass", "fail", "not_run", "unknown"}
 
     asyncio.run(go())
+
+
+def test_mcp_missing_db_is_an_error_not_an_empty_answer(tmp_path):
+    db = tmp_path / "none.db"
+
+    async def go():
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "atlas.cli", "serve", "--db", str(db)],
+        )
+        async with stdio_client(params) as (r, w):
+            async with ClientSession(r, w) as s:
+                await s.initialize()
+                try:
+                    res = await s.call_tool("impact", {"symbol": "customer_id"})
+                except Exception as e:  # some client versions raise MCPError
+                    return str(e)
+                assert res.is_error
+                return " ".join(getattr(c, "text", "") for c in res.content)
+
+    assert "not found" in asyncio.run(go())
+    assert not db.exists()

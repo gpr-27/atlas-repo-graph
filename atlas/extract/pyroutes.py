@@ -24,7 +24,7 @@ def _routes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[str,
         if attr == "route":
             methods = ["GET"]
             for keyword in decorator.keywords:
-                if keyword.arg == "methods" and isinstance(keyword.value, ast.List):
+                if keyword.arg == "methods" and isinstance(keyword.value, (ast.List, ast.Tuple, ast.Set)):
                     values = [
                         elt.value.upper()
                         for elt in keyword.value.elts
@@ -71,6 +71,9 @@ def _return_keys(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[list
         if not isinstance(node, ast.Return) or node.value is None:
             continue
         value = node.value
+        # `return {...}, 201` / `return jsonify({...}), 200`: the body is the first element
+        if isinstance(value, ast.Tuple) and value.elts:
+            value = value.elts[0]
         dict_keys = _dict_keys(value)
         if dict_keys is not None:
             keys.extend(dict_keys)
@@ -129,7 +132,7 @@ def extract_py_routes(repo_name: str, repo_root: Path) -> ExtractResult:
             keys, non_literal = _return_keys(function)
             for key in keys:
                 line = key.lineno
-                snippet = lines[line - 1].strip() if 0 < line <= len(lines) else ""
+                snippet = lines[line - 1].strip()[:200] if 0 < line <= len(lines) else ""
                 for endpoint in endpoints:
                     field = Node(
                         repo_name, "field", str(key.value), rel, line,

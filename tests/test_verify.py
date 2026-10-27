@@ -27,6 +27,14 @@ def test_run_test_cmd_pass_fail_timeout(tmp_path):
     assert state == "unknown" and "timed out" in out
 
 
+def test_run_test_cmd_that_cannot_start_is_unknown_not_fail(tmp_path):
+    # the shell exits 127 for a missing command: no test ran, so this must not be "fail"
+    state, out = run_test_cmd("atlas_no_such_cmd_xyz", str(tmp_path), 5)
+    assert state == "unknown" and "failed to start" in out
+    state, out = run_test_cmd("python -m atlas_no_such_module_xyz -q", str(tmp_path), 30)
+    assert state == "unknown" and "not installed" in out
+
+
 # ── fixtures for workspace tests ─────────────────────────────────────────────
 
 _FASTAPI_STUB = """\

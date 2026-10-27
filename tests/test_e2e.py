@@ -34,7 +34,8 @@ def test_e2e_impact_has_three_consumers(workspace, tmp_path, capsys):
     assert main(["impact", "customer_id", "--json", "--db", db]) == 0
     data = json.loads(capsys.readouterr().out)
     consumer_repos = {c["repo"] for c in data["consumers"]}
-    assert consumer_repos >= {"billing", "web", "analytics"}
+    assert consumer_repos == {"billing", "web", "analytics"}
+    assert len(data["consumers"]) == 3  # one row per reference, not one per producer
 
 
 def test_e2e_verify_states_after_rename(workspace, tmp_path, capsys):
@@ -53,10 +54,8 @@ def test_e2e_verify_states_after_rename(workspace, tmp_path, capsys):
     rc = main(["verify", "customer_id", "--renamed-to", "account_id",
                "--run-tests", "--json", "--db", db])
     assert rc == 2  # at least one fail
-    rows = {r["repo"]: r for r in json.loads(capsys.readouterr().out)}
-    assert rows["analytics"]["state"] == "unknown"
-    assert rows["billing"]["state"] == "fail"
-    assert rows["web"]["state"] == "pass"
+    rows = {r["repo"]: r["state"] for r in json.loads(capsys.readouterr().out)}
+    assert rows == {"analytics": "unknown", "billing": "fail", "web": "pass"}
 
 
 def test_e2e_verify_no_run_tests(workspace, tmp_path, capsys):

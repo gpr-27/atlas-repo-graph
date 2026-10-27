@@ -1,11 +1,12 @@
 """MCP stdio server (architecture §10). Never prints to stdout — that is the protocol channel."""
 import dataclasses
 import logging
-import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
@@ -21,6 +22,9 @@ def build_server(db_path: str) -> MCPServer:
 
     def _conn():
         from atlas.db import open_db
+        # Never create an empty DB: "no consumers" from a missing index would look like "safe to edit".
+        if not Path(db_path).exists():
+            raise ToolError(f"Atlas DB not found: {db_path}. Run `atlas scan <repo>...` first.")
         return open_db(db_path)
 
     @mcp.tool()

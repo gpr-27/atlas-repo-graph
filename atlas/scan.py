@@ -83,6 +83,30 @@ def _unique_name(base: str, seen: set[str]) -> str:
     return name
 
 
+def _merge(parts: list[tuple[str, ExtractResult]]) -> ExtractResult:
+    """Concatenate extractor results; skipped entries de-duplicated, first occurrence wins
+    (a file with a SyntaxError is reported by both Python extractors)."""
+    merged = ExtractResult()
+    for _, part in parts:
+        merged.nodes.extend(part.nodes)
+        merged.edges.extend(part.edges)
+        merged.skipped.extend(part.skipped)
+    merged.skipped = list(dict.fromkeys(merged.skipped))
+    return merged
+
+
+def _print_per_file(parts: list[tuple[str, ExtractResult]]) -> None:
+    """NFR-009: per-file node counts, broken down by the extractor that produced them."""
+    per_file: dict[str, dict[str, int]] = {}
+    for extractor, part in parts:
+        for node in part.nodes:
+            counts = per_file.setdefault(node.file, {})
+            counts[extractor] = counts.get(extractor, 0) + 1
+    for file, counts in sorted(per_file.items()):
+        detail = ", ".join(f"{ext} {n}" for ext, n in counts.items())
+        print(f"    {file}: {sum(counts.values())} nodes ({detail})", file=sys.stderr)
+
+
 def scan_repos(
     paths: list[Path], db_path: Path, verbose: bool = False
 ) -> dict:
@@ -98,21 +122,17 @@ def scan_repos(
 
     # First pass: producer extraction to collect known field names
     snippet_cache: dict = {}
-    producer_results: list[tuple[RepoInfo, ExtractResult]] = []
+    producer_results: list[tuple[RepoInfo, list[tuple[str, ExtractResult]]]] = []
     all_known_fields: set[str] = set()
     for repo_info in repo_infos:
         p = Path(repo_info.path)
-        oa = extract_openapi(repo_info.name, p)
-        py = extract_py_routes(repo_info.name, p)
-        merged = ExtractResult(
-            nodes=oa.nodes + py.nodes,
-            edges=oa.edges + py.edges,
-            skipped=oa.skipped + py.skipped,
-        )
-        producer_results.append((repo_info, merged))
-        for node in merged.nodes:
-            if node.kind == "field":
-                all_known_fields.add(node.name)
+        parts = [
+            ("openapi", extract_openapi(repo_info.name, p)),
+            ("pyroutes", extract_py_routes(repo_info.name, p)),
+        ]
+        producer_results.append((repo_info, parts))
+        for _, part in parts:
+            all_known_fields.update(n.name for n in part.nodes if n.kind == "field")
     # Fields already indexed from repos that are NOT part of this call still count as known.
     scanning = {r.name for r in repo_infos}
     all_known_fields.update(
@@ -121,14 +141,10 @@ def scan_repos(
 
     summary_repos = []
 
-    for repo_info, prod_result in producer_results:
+    for repo_info, parts in producer_results:
         p = Path(repo_info.path)
-        cons = extract_py_consumers(repo_info.name, p, all_known_fields)
-        combined = ExtractResult(
-            nodes=prod_result.nodes + cons.nodes,
-            edges=prod_result.edges + cons.edges,
-            skipped=prod_result.skipped + cons.skipped,
-        )
+        parts = parts + [("pyconsumers", extract_py_consumers(repo_info.name, p, all_known_fields))]
+        combined = _merge(parts)
         counts = replace_repo(conn, repo_info, combined.nodes, combined.edges, {})
 
         if verbose:
@@ -137,11 +153,7 @@ def scan_repos(
                 f"{len(combined.skipped)} skipped",
                 file=sys.stderr,
             )
-            per_file: dict[str, int] = {}
-            for node in combined.nodes:
-                per_file[node.file] = per_file.get(node.file, 0) + 1
-            for file, n in sorted(per_file.items()):
-                print(f"    {file}: {n} nodes", file=sys.stderr)
+            _print_per_file(parts)
             for s in combined.skipped:
                 print(f"    skipped: {s}", file=sys.stderr)
 

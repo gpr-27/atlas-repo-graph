@@ -42,7 +42,7 @@ Atlas reports one of four honest states for each consumer repo: **pass**, **fail
 - `pass` — `test_cmd` ran and exited 0.
 - `fail` — `test_cmd` ran and exited non-zero.
 - `not_run` — `--run-tests` was not passed, or no test command was detected.
-- `unknown` — the test command timed out or failed to start.
+- `unknown` — the test command timed out or failed to start: the OS could not launch it, the shell exited 126/127 (command not found or not executable), or `python -m <module>` reported `No module named <module>` (for example pytest is not installed next to Atlas). None of these ran a test, so none may count as `fail`.
 
 ## The reason string
 

@@ -41,3 +41,21 @@ def test_search_and_explain(conn):
     assert e["dst"]["repo"] in ("routes_repo", "openapi_repo")
     assert e["evidence"]["snippet"] and e["evidence"]["extractor"] == "link"
     assert explain_edge(conn, 999999) is None
+
+
+def test_impact_lists_each_reference_once_when_two_producers_expose_field(conn):
+    # openapi_repo and routes_repo both expose customer_id on the same endpoint
+    r = impact(conn, "customer_id")
+    assert len(r.producers) >= 2
+    keys = [(c.repo, c.file, c.line, c.via) for c in r.consumers]
+    assert len(keys) == len(set(keys))
+
+
+def test_impact_drops_name_match_rows_for_a_reference_already_exact(conn):
+    rows = [c for c in impact(conn, "customer_id").consumers if c.file == "charge.py"]
+    assert [c.confidence for c in rows] == ["exact"]
+
+
+def test_search_treats_underscore_and_percent_literally(conn):
+    assert all("_" in h["name"] for h in search(conn, "_"))
+    assert search(conn, "%") == []

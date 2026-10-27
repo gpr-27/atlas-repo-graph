@@ -4,11 +4,11 @@
 >
 > ```
 > Consumer   Evidence       Confidence  Contract  Tests    State    Reason
-> ---------  -------------  ----------  --------  -------  -------  -------------------------------------------------------
+> ---------  -------------  ----------  --------  -------  -------  ------------------------------------------------------------------------
 > analytics  report.py:6    inferred    fail      not_run  unknown  name match only; still references customer_id, which no producer exposes
 > billing    charge.py:10   exact       fail      fail     fail     still references customer_id, which no producer exposes
 > web        profile.py:10  exact       pass      pass     pass     updated to account_id
-> pass=1  fail=1  not_run=0  unknown=1
+> pass=1 fail=1 not_run=0 unknown=1
 > ```
 
 Atlas maps how your local git repositories depend on each other — HTTP endpoints and response fields → the code in other repos that uses them — shows what a change would break, proves every link with file-and-line evidence, and reports one of four honest states: **pass / fail / not_run / unknown**.
@@ -37,7 +37,7 @@ pipx install git+https://github.com/YOUR_GITHUB_USERNAME/atlas-repo-graph
 pipx inject atlas-repo-graph pytest
 ```
 
-**Why pytest?** `atlas verify --run-tests` runs each consumer repo's test command (`python -m pytest -q` by default) with the *same Python Atlas is installed in*. If pytest is missing from that environment, pytest cannot start, exits non-zero, and the repo is reported as `tests: fail` even though your tests were never run. Install pytest alongside Atlas as shown above, or give the repo a `.atlas.yaml` whose `test_cmd:` does not start with `python ` (for example `make test`), which Atlas runs unchanged.
+**Why pytest?** `atlas verify --run-tests` runs each consumer repo's test command (`python -m pytest -q` by default) with the *same Python Atlas is installed in*. If pytest is missing from that environment, no test can run, so Atlas reports `tests: unknown` ("failed to start") rather than a pass or fail it didn't earn — and the demo can't show `web pass`. Install pytest alongside Atlas as shown above, or give the repo a `.atlas.yaml` whose `test_cmd:` does not start with `python ` (for example `make test`), which Atlas runs unchanged.
 
 ## 60-second demo
 
@@ -57,9 +57,10 @@ This scans four tiny repos, shows the impact of `customer_id`, renames it in bac
 | `atlas verify <symbol> [--renamed-to NEW] [--run-tests]` | Per-consumer contract + test state | 0 / **2** if any fail |
 | `atlas search <text>` | Substring match on node names | 0 |
 | `atlas explain-edge <id>` | One edge with full evidence | 0 / 1 if not found |
+| `atlas --version` | Print the installed version | 0 |
 | `atlas serve` | MCP stdio server | — |
 
-`--db` defaults to `$ATLAS_DB` env var or `./atlas.db`. Add `-v` to `scan` for per-file counts.
+`--db` defaults to `$ATLAS_DB` env var or `./atlas.db`. Usage errors and a missing DB exit 1, so exit 2 always means a verify `fail`. Add `-v` to `scan` for per-file counts.
 
 ## How states are decided
 
@@ -97,6 +98,12 @@ Atlas speaks MCP over stdio — works with Claude Code, Cursor, Codex, opencode,
   }
 }
 ```
+
+The server reads an existing index; it never creates one. Build it first — from this repo's root, so the committed `.mcp.json` finds `./atlas.db`:
+```bash
+atlas scan examples/backend examples/billing examples/web examples/analytics
+```
+If the DB is missing, every tool returns an error ("Atlas DB not found … run `atlas scan` first") instead of an empty answer that would look like "nobody uses this field".
 
 **Any other agent** — run `atlas serve --db ./atlas.db`; the server exposes `impact`, `verify`, `search`, `status`, `explain_edge`; most agents show them prefixed with the server name (`atlas_impact`, `atlas_verify`, …).
 

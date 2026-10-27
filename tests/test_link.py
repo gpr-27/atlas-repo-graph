@@ -42,3 +42,13 @@ def test_orphan_call_gets_no_edge_and_no_error():
 def test_no_edges_within_same_repo():
     same = _n("backend", "field_ref", "customer_id", "app.py", 40, access="subscript", function="x")
     assert link([EP, F, same], {same.key: "x"}) == []
+
+
+def test_trailing_slash_normalized_on_both_sides():
+    from atlas.extract import path_pattern
+    ep = _n("backend", "endpoint", "GET /users/", "app.py", 1, method="GET", path="/users/", pattern=path_pattern("/users/"))
+    call = _n("billing", "http_call", "GET /users", "c.py", 2, method="GET", path="/users", library="requests")
+    root = _n("backend", "endpoint", "GET /", "app.py", 3, method="GET", path="/", pattern=path_pattern("/"))
+    root_call = _n("billing", "http_call", "GET /", "c.py", 4, method="GET", path="/", library="requests")
+    edges = {(e.src_key, e.dst_key) for e in link([ep, call, root, root_call], {}) if e.kind == "CALLS"}
+    assert edges == {(call.key, ep.key), (root_call.key, root.key)}

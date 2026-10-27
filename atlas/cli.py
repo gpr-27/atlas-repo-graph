@@ -3,12 +3,21 @@ import argparse
 import dataclasses
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
 
 def _db_default() -> str:
     return os.environ.get("ATLAS_DB", "./atlas.db")
+
+
+def _version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version("atlas-repo-graph")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 class _CLIError(Exception):
@@ -30,10 +39,14 @@ def _cmd_scan(args) -> int:
     from atlas.scan import scan_repos
     paths = [Path(p) for p in args.repos]
     for p in paths:
-        if not p.exists():
+        if not p.is_dir():
             print(f"error: repo path not found: {p}", file=sys.stderr)
             return 1
-    result = scan_repos(paths, Path(args.db), verbose=args.verbose)
+    try:
+        result = scan_repos(paths, Path(args.db), verbose=args.verbose)
+    except sqlite3.OperationalError as e:
+        print(f"error: cannot open DB {args.db}: {e}", file=sys.stderr)
+        return 1
     for r in result["repos"]:
         print(f"scanned {r['name']}: {r['nodes']} nodes, {r['edges']} edges, "
               f"{len(r['skipped'])} skipped")
@@ -77,7 +90,7 @@ def _cmd_verify(args) -> int:
                   timeout=args.timeout)
     conn.close()
     if not rows:
-        print(f"no consumers reference `{args.symbol}`")
+        print("[]" if args.json else f"no consumers reference `{args.symbol}`")
         return 0
     if args.json:
         print(json.dumps([dataclasses.asdict(r) for r in rows], indent=2))
@@ -132,6 +145,7 @@ def _cmd_serve(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="atlas", description="Cross-repo impact graph.")
+    parser.add_argument("--version", action="version", version=f"atlas {_version()}")
     sub = parser.add_subparsers(dest="cmd")
 
     def _add_db(p):
@@ -182,7 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
     except SystemExit as e:
-        return int(e.code) if e.code is not None else 1
+        # --help/--version exit 0; usage errors are 1 so they never look like a verify fail (2)
+        return 0 if e.code in (0, None) else 1
 
     dispatch = {
         "scan": _cmd_scan,

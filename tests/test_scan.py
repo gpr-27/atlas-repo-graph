@@ -57,3 +57,26 @@ def test_verbose_prints_per_file_counts_and_skipped_to_stderr(tmp_path, capsys):
     cap = capsys.readouterr()
     assert cap.out == ""                       # nothing on stdout
     assert "good.py" in cap.err and "skipped: bad.py" in cap.err
+
+
+def test_bad_file_skipped_once_and_does_not_change_good_counts(tmp_path, capsys):
+    good_only, both = tmp_path / "a" / "r", tmp_path / "b" / "r"
+    for repo in (good_only, both):
+        repo.mkdir(parents=True)
+        (repo / "good.py").write_text('@app.get("/a")\ndef f():\n    return {"k": 1}\n')
+    (both / "bad.py").write_text("def (:\n")
+    a = scan_repos([good_only], tmp_path / "a.db")["repos"][0]
+    b = scan_repos([both], tmp_path / "b.db", verbose=True)["repos"][0]
+    assert (a["nodes"], a["edges"]) == (b["nodes"], b["edges"])
+    assert b["skipped"] == ["bad.py: SyntaxError"]           # once, not once per extractor
+    assert "good.py: 2 nodes (pyroutes 2)" in capsys.readouterr().err
+
+
+def test_trailing_slash_route_gets_calls_edge(tmp_path):
+    api, cli = tmp_path / "api", tmp_path / "cli"
+    api.mkdir(); cli.mkdir()
+    (api / "app.py").write_text('@app.get("/users/")\ndef users():\n    return {"id": 1}\n')
+    (cli / "c.py").write_text('import requests\nrequests.get("http://h/users/")\n')
+    db = tmp_path / "atlas.db"
+    scan_repos([api, cli], db)
+    assert [e for e in fetch_edges(open_db(db)) if e["kind"] == "CALLS"]
